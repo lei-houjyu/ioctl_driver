@@ -1,5 +1,5 @@
 CC=$(CROSS_COMPILE)gcc
-CFLAGS=-Wall -std=c99 -O0 -g -Wconversion -Wextra
+CFLAGS=-Wall -O0 -g -Wconversion -Wextra
 
 all: clean ioctl_app
 

@@ -13,6 +13,7 @@
 #include <linux/delay.h>
 #include <linux/cdev.h>	
 #include <linux/uaccess.h>
+#include <linux/hashtable.h>
 
 #include "ioctl_dev.h"
 #include "ioctl.h"
@@ -34,6 +35,13 @@ struct file_operations ioctl_d_interface_fops = {
 	.unlocked_ioctl = ioctl_d_interface_ioctl,
 	.release = ioctl_d_interface_release
 };
+
+struct inode_lock {
+    uint32_t inode_num;
+	bool held;
+    struct hlist_node node;
+};
+DEFINE_HASHTABLE(lock_cache, 20);
 
 /* Private API */
 static int ioctl_d_interface_dev_init(ioctl_d_interface_dev* ioctl_d_interface);
@@ -93,6 +101,26 @@ static int ioctl_d_interface_init(void)
 	}
 
 	printk(KERN_INFO "ioctl_d_interface: module loaded\n");
+
+	hash_init(lock_cache);
+
+	struct inode_lock *cur = NULL;
+	uint32_t i, num = 1000000;
+	
+	for (i = 0; i < num; i++) {
+		cur = (struct inode_lock *)kmalloc(sizeof(inode_lock), GFP_KERNEL);
+		
+		if (cur == NULL) {
+			printk(KERN_WARNING "Insufficient memory after %d alloactions\n", i);
+			break;
+		}
+
+		cur->inode_num = i;
+		cur->held = true;
+
+		hash_add(lock_cache, &(cur->node), cur->inode_num);
+	}
+
 	return 0;
 
 fail:
@@ -102,6 +130,16 @@ fail:
 
 static void ioctl_d_interface_exit(void)
 {
+	struct inode_lock *cur;
+
+	unsigned bkt;
+
+	hash_for_each(lock_cache, bkt, cur, node) {
+		hash_del(&(cur->node));
+		kfree(cur);
+	}
+	printk(KERN_INFO "ioctl_d_interface: hashtable freed\n");
+
 	dev_t devno = MKDEV(ioctl_d_interface_major, ioctl_d_interface_minor);
 
 	cdev_del(&ioctl_d_interface.cdev);
@@ -140,11 +178,21 @@ long ioctl_d_interface_ioctl(struct file *filp, unsigned int cmd, unsigned long 
 	switch (cmd) {
 		// Get the number of channel found
 		case IOCTL_BASE_GET_MUIR:
-			printk(KERN_INFO "<%s> ioctl: IOCTL_BASE_GET_MUIR\n", DEVICE_NAME);
-			uint32_t value = 0x12345678;
-			if (copy_to_user((uint32_t*) arg, &value, sizeof(value))){
+			uint32_t num;
+
+			if (copy_from_user(&num, (uint32_t*) arg, sizeof(num))){
 				return -EFAULT;
 			}
+
+			printk(KERN_INFO "<%s> ioctl: invalidating %u\n", DEVICE_NAME, num);
+
+			struct inode_lock *cur = NULL;
+
+			hash_for_each_possible(lock_cache, cur, node, num) {
+				cur->held = false;
+				printk(KERN_INFO "<%s> ioctl: invalidated %u\n", DEVICE_NAME, num);
+			}
+
 			break;
 
 		default:

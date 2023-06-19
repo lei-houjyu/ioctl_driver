@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <stdint.h>
 #include <sys/ioctl.h>
+#include <time.h>
 
 #include "../dev/ioctl.h"
 
@@ -48,13 +49,23 @@ void close_driver(const char* driver_name, int fd_driver) {
 int main(void) {
 
   int fd_ioctl = open_driver(IOCTL_DRIVER_NAME);
-  uint32_t value;
-	if (ioctl(fd_ioctl, IOCTL_BASE_GET_MUIR, &value) < 0) {
-			perror("Error ioctl PL_AXI_DMA_GET_NUM_DEVICES");
-			exit(EXIT_FAILURE);
-	}
+  struct timespec start, end;
+  uint32_t request_num = 1000000;
 
-  printf("Value is %u\n", value);
+  clock_gettime(CLOCK_REALTIME, &start);
+
+  for (uint32_t i = 0; i < request_num; i++) {
+      uint32_t inode_num = i;
+      if (ioctl(fd_ioctl, IOCTL_BASE_GET_MUIR, &inode_num) < 0) {
+          perror("Error ioctl PL_AXI_DMA_GET_NUM_DEVICES");
+          exit(EXIT_FAILURE);
+      }
+  }
+
+  clock_gettime(CLOCK_REALTIME, &end);
+
+  long run_time = 1000000000 * (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec);
+  printf("Average latency: %f nsec\n", (double)run_time / request_num);
 
 	close_driver(IOCTL_DRIVER_NAME, fd_ioctl);
 
